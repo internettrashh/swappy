@@ -16,6 +16,7 @@ const ZEROX_API_ENDPOINTS = {
   56: "https://bsc.api.0x.org",             // BSC
   42161: "https://arbitrum.api.0x.org",     // Arbitrum
   10: "https://optimism.api.0x.org",        // Optimism
+  
   43114: "https://avalanche.api.0x.org",    // Avalanche
 };
 
