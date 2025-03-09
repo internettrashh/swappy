@@ -142,7 +142,7 @@ export class BalanceService {
     };
   }
 
-  async getDCAOrdersStatus(userId: string): Promise<any> {
+  async getDCAOrdersStatus(userId: string): Promise<any[]> {
     const orders = await DCAOrder.find({ userId });
     
     const orderDetails = await Promise.all(orders.map(async order => {

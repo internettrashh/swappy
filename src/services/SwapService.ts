@@ -9,6 +9,7 @@ import {
   concat,
   numberToHex,
   size,
+  type Chain,
 } from "viem";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -19,14 +20,25 @@ export class SwapService {
   private headers: Headers;
 
   // Monad testnet configuration
-  private CHAIN_CONFIG = {
+  private CHAIN_CONFIG: Chain = {
     id: 10143,
     name: 'Monad Testnet',
     network: 'monad-testnet',
+    nativeCurrency: {
+      name: 'Monad',
+      symbol: 'MONAD',
+      decimals: 18,
+    },
     rpcUrls: {
       default: { http: ['https://testnet-rpc.monad.xyz'] },
       public: { http: ['https://testnet-rpc.monad.xyz'] }
-    }
+    },
+    blockExplorers: {
+      default: {
+        name: 'MonadScan',
+        url: 'https://testnet.monad.xyz/explorer',
+      },
+    },
   };
 
   constructor() {
@@ -78,21 +90,30 @@ export class SwapService {
       }
 
       // 2. Handle token approvals
-      if (sourceToken !== 'ETH') {
+      if (sourceToken !== 'MON') {
         const sourceTokenContract = getContract({
           address: sourceToken as `0x${string}`,
           abi: erc20Abi,
-          client: this.client,
+          publicClient: this.client,
+          walletClient: this.client,
         });
 
         if (price.issues?.allowance) {
-          const { request } = await sourceTokenContract.simulate.approve([
-            price.issues.allowance.spender,
-            maxUint256,
+          // Check current allowance
+          const currentAllowance = await sourceTokenContract.read.allowance([
+            address,
+            price.issues.allowance.spender as `0x${string}`
           ]);
-          
-          const approvalHash = await sourceTokenContract.write.approve(request.args);
-          await this.client.waitForTransactionReceipt({ hash: approvalHash });
+
+          if (currentAllowance < amount) {
+            // Approve if needed
+            const hash = await sourceTokenContract.write.approve([
+              price.issues.allowance.spender as `0x${string}`,
+              maxUint256
+            ]);
+            
+            await this.client.waitForTransactionReceipt({ hash });
+          }
         }
       }
 
@@ -134,8 +155,8 @@ export class SwapService {
           account: this.client.account,
           chain: this.CHAIN_CONFIG,
           gas: quote?.transaction.gas ? BigInt(quote.transaction.gas) : undefined,
-          to: quote?.transaction.to,
-          data: quote.transaction.data,
+          to: quote?.transaction.to as `0x${string}`,
+          data: quote.transaction.data as `0x${string}`,
           value: BigInt(quote.transaction.value),
           gasPrice: quote?.transaction.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
           nonce: nonce,
@@ -145,8 +166,8 @@ export class SwapService {
           account: this.client.account,
           chain: this.CHAIN_CONFIG,
           gas: quote?.transaction.gas ? BigInt(quote.transaction.gas) : undefined,
-          to: quote?.transaction.to,
-          data: quote.transaction.data,
+          to: quote?.transaction.to as `0x${string}`,
+          data: quote.transaction.data as `0x${string}`,
           gasPrice: quote?.transaction.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
           nonce: nonce,
         });
