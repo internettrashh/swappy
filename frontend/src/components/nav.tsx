@@ -47,9 +47,8 @@ function Nav() {
           </div>
           <div className="hidden sm:flex space-x-6">
             <button className="text-white bg-[#1a2232] px-4 py-2 rounded-full">Swap</button>
-            <button className="text-gray-400 px-4 py-2 rounded-full">Perps</button>
-            <button className="text-gray-400 px-4 py-2 rounded-full">Earn</button>
-            <button className="text-gray-400 px-4 py-2 rounded-full">Stake</button>
+            <button className="text-gray-400 px-4 py-2 rounded-full">DCA</button>
+            <button className="text-gray-400 px-4 py-2 rounded-full">Limit</button>
           </div>
         </div>
         <div className="flex items-center space-x-3">

@@ -10,12 +10,58 @@ import {
   numberToHex,
   size,
   type Chain,
+  createPublicClient,
 } from "viem";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
+// Define types for 0x API responses
+interface PriceResponse {
+  price: string;
+  estimatedPriceImpact: string;
+  value: string;
+  gasPrice: string;
+  gas: string;
+  estimatedGas: string;
+  protocolFee: string;
+  minimumProtocolFee: string;
+  buyTokenAddress: string;
+  buyAmount: string;
+  sellTokenAddress: string;
+  sellAmount: string;
+  sources: any[];
+  allowanceTarget: string;
+  sellTokenToEthRate: string;
+  buyTokenToEthRate: string;
+  expectedSlippage: string;
+  error?: string;
+  issues?: {
+    allowance?: {
+      spender: string;
+      amount: string;
+    };
+  };
+}
+
+interface QuoteResponse extends PriceResponse {
+  guaranteedPrice: string;
+  to: string;
+  data: Hex;
+  transaction: {
+    to: string;
+    data: Hex;
+    value: string;
+    gas: string;
+    gasPrice: string;
+  };
+  permit2?: {
+    eip712: any;
+  };
+}
+
 export class SwapService {
   private client;
+  private publicClient;
   private ZERO_EX_API_KEY: string;
   private headers: Headers;
 
@@ -23,11 +69,10 @@ export class SwapService {
   private CHAIN_CONFIG: Chain = {
     id: 10143,
     name: 'Monad Testnet',
-    network: 'monad-testnet',
     nativeCurrency: {
-      name: 'Monad',
-      symbol: 'MONAD',
       decimals: 18,
+      name: 'MONAD',
+      symbol: 'MONAD',
     },
     rpcUrls: {
       default: { http: ['https://testnet-rpc.monad.xyz'] },
@@ -36,7 +81,7 @@ export class SwapService {
     blockExplorers: {
       default: {
         name: 'MonadScan',
-        url: 'https://testnet.monad.xyz/explorer',
+        url: 'https://testnet.monad.xyz/explorer'
       },
     },
   };
@@ -51,6 +96,11 @@ export class SwapService {
       "Content-Type": "application/json",
       "0x-api-key": this.ZERO_EX_API_KEY,
       "0x-version": "v2",
+    });
+
+    this.publicClient = createPublicClient({
+      chain: this.CHAIN_CONFIG,
+      transport: http('https://testnet-rpc.monad.xyz')
     });
 
     // Initialize wallet client with Monad configuration
@@ -83,30 +133,29 @@ export class SwapService {
         { headers: this.headers }
       );
 
-      const price = await priceResponse.json();
+      const price = (await priceResponse.json()) as PriceResponse;
       
-      if (!price || price.error) {
-        throw new Error(`Price fetch failed: ${price?.error || 'Unknown error'}`);
+      if (price.error) {
+        throw new Error(`Price fetch failed: ${price.error}`);
       }
 
       // 2. Handle token approvals
-      if (sourceToken !== 'MON') {
+      if (sourceToken !== "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE") {
         const sourceTokenContract = getContract({
           address: sourceToken as `0x${string}`,
           abi: erc20Abi,
-          publicClient: this.client,
-          walletClient: this.client,
+          client: this.client,
+          //@ts-ignore
+          publicClient: this.publicClient,
         });
 
         if (price.issues?.allowance) {
-          // Check current allowance
           const currentAllowance = await sourceTokenContract.read.allowance([
             address,
             price.issues.allowance.spender as `0x${string}`
           ]);
 
           if (currentAllowance < amount) {
-            // Approve if needed
             const hash = await sourceTokenContract.write.approve([
               price.issues.allowance.spender as `0x${string}`,
               maxUint256
@@ -123,23 +172,23 @@ export class SwapService {
         { headers: this.headers }
       );
 
-      const quote = await quoteResponse.json();
+      const quote = (await quoteResponse.json()) as QuoteResponse;
 
       // 4. Handle permit2 signature if needed
       let signature: Hex | undefined;
       if (quote.permit2?.eip712) {
         signature = await this.client.signTypedData(quote.permit2.eip712);
         
-        if (signature && quote?.transaction?.data) {
+        if (signature && quote.transaction?.data) {
           const signatureLengthInHex = numberToHex(size(signature), {
             signed: false,
             size: 32,
           });
 
           quote.transaction.data = concat([
-            quote.transaction.data as Hex,
-            signatureLengthInHex as Hex,
-            signature as Hex,
+            quote.transaction.data,
+            signatureLengthInHex,
+            signature,
           ]);
         }
       }
@@ -154,21 +203,21 @@ export class SwapService {
         txHash = await this.client.sendTransaction({
           account: this.client.account,
           chain: this.CHAIN_CONFIG,
-          gas: quote?.transaction.gas ? BigInt(quote.transaction.gas) : undefined,
-          to: quote?.transaction.to as `0x${string}`,
-          data: quote.transaction.data as `0x${string}`,
-          value: BigInt(quote.transaction.value),
-          gasPrice: quote?.transaction.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
+          gas: quote.transaction?.gas ? BigInt(quote.transaction.gas) : undefined,
+          to: quote.transaction?.to as `0x${string}`,
+          data: quote.transaction?.data,
+          value: BigInt(quote.transaction?.value || '0'),
+          gasPrice: quote.transaction?.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
           nonce: nonce,
         });
       } else {
         const signedTx = await this.client.signTransaction({
           account: this.client.account,
           chain: this.CHAIN_CONFIG,
-          gas: quote?.transaction.gas ? BigInt(quote.transaction.gas) : undefined,
-          to: quote?.transaction.to as `0x${string}`,
-          data: quote.transaction.data as `0x${string}`,
-          gasPrice: quote?.transaction.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
+          gas: quote.transaction?.gas ? BigInt(quote.transaction.gas) : undefined,
+          to: quote.transaction?.to as `0x${string}`,
+          data: quote.transaction?.data,
+          gasPrice: quote.transaction?.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
           nonce: nonce,
         });
 
@@ -211,7 +260,7 @@ export class SwapService {
       { headers: this.headers }
     );
 
-    const quote = await response.json();
+    const quote = (await response.json()) as PriceResponse;
     return Number(quote.price);
   }
 } 

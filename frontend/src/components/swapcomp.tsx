@@ -6,6 +6,8 @@ import { Settings, ChevronDown, ArrowDown, Info, Loader2 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { ethers } from "ethers";
+import { BrowserProvider } from "ethers";
+import { concat, encodeAbiParameters, parseAbiParameters } from 'viem';
 
 // Token type definition
 interface Token {
@@ -62,10 +64,23 @@ export default function SwapComponent() {
   const [gasFee, setGasFee] = useState<string | null>(null)
   const [route, setRoute] = useState<any>(null)
 
+  // Add slippage
+  const [slippage, setSlippage] = useState("100") // Default 1%
+  const [showSlippageSettings, setShowSlippageSettings] = useState(false)
+
+  // Add state for animation
+  const [showQuoteSuccess, setShowQuoteSuccess] = useState(false)
+
+  // Add transaction state
+  const [isSwapping, setIsSwapping] = useState(false)
+  const [txHash, setTxHash] = useState<string | null>(null)
+  const [txStatus, setTxStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle')
+  const [txError, setTxError] = useState<string | null>(null)
+
   // Initialize default tokens
   useEffect(() => {
     setFromToken(tokenlist.find((t) => t.symbol === "MON") || tokenlist[0])
-    setToToken(tokenlist.find((t) => t.symbol === "USDT") || tokenlist[1])
+    setToToken(tokenlist.find((t) => t.symbol === "DAK") || tokenlist[5])
   }, [])
 
   // Fetch quote when tokens or amounts change
@@ -115,7 +130,7 @@ export default function SwapComponent() {
     fetchQuote()
   }
 
-  // Fetch quote from API
+  // Fetch quote from API with improved error handling
   const fetchQuote = async () => {
     if (!fromToken || !toToken || !fromAmount || Number.parseFloat(fromAmount) === 0) {
       setToAmount("")
@@ -132,7 +147,7 @@ export default function SwapComponent() {
       const fromAmountInWei = BigInt(Math.floor(Number.parseFloat(fromAmount) * 10 ** 18)).toString()
 
       // Use the connected wallet address as taker if available, otherwise use a fallback
-      const takerAddress = activeWallet?.address || "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+      const takerAddress = activeWallet?.address || ""
       
       // Use the actual address for tokens, not the string "NATIVE"
       const fromTokenAddress = fromToken.isNative 
@@ -143,8 +158,11 @@ export default function SwapComponent() {
         ? NATIVE_TOKEN_ADDRESS  // Use the actual native token address
         : toToken.address
       
+      // Add slippage parameter - default 1% (100 basis points)
+      const slippageBps = "100"
+      
       const response = await fetch(
-        `/api/price?fromAmount=${fromAmountInWei}&fromToken=${fromTokenAddress}&toToken=${toTokenAddress}&taker=${takerAddress}`
+        `/api/price?fromAmount=${fromAmountInWei}&fromToken=${fromTokenAddress}&toToken=${toTokenAddress}&taker=${takerAddress}&slippageBps=${slippageBps}`
       )
       const data = await response.json()
 
@@ -176,8 +194,10 @@ export default function SwapComponent() {
           price: buyAmount
         })
         
-        // Calculate and set gas fee if available
-        if (data.transaction && data.transaction.gas && data.transaction.gasPrice) {
+        // Use the pre-calculated gas fee from API if available
+        if (data.estimatedGasCostInETH) {
+          setGasFee(data.estimatedGasCostInETH + " ETH")
+        } else if (data.transaction && data.transaction.gas && data.transaction.gasPrice) {
           const gasCost = BigInt(data.transaction.gas) * BigInt(data.transaction.gasPrice)
           const gasCostInETH = Number(gasCost) / 10**18
           setGasFee(gasCostInETH.toFixed(6) + " ETH")
@@ -192,11 +212,27 @@ export default function SwapComponent() {
         if (data.route) {
           setRoute(data.route)
         }
+        
+        // Show success info if available
+        if (data.uiMessage) {
+          // You could add a success message toast here
+          console.log(data.uiMessage)
+        }
+
+        // Trigger success animation
+        setShowQuoteSuccess(true)
+        setTimeout(() => setShowQuoteSuccess(false), 2000)
       } else {
-        setQuoteError(data.error || "Failed to fetch quote.")
+        // Use the UI-friendly message if available
+        setQuoteError(data.uiMessage || data.error || "Failed to fetch quote.")
         setToAmount("")
         setGasFee(null)
         setRoute(null)
+        
+        // If error is recoverable, we might want to suggest actions
+        if (data.recoverable) {
+          // Could add suggestion UI here
+        }
       }
     } catch (error) {
       console.error("Error fetching quote:", error)
@@ -316,6 +352,235 @@ export default function SwapComponent() {
     }
   }
 
+  // Add this component somewhere in your UI
+  const SlippageSelector = () => (
+    <div className="bg-[#0d141f] rounded-xl p-4 mb-4">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-gray-400 text-sm">Slippage Tolerance</span>
+        <button 
+          onClick={() => setShowSlippageSettings(false)}
+          className="text-gray-400 hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+      
+      <div className="flex space-x-2 mb-2">
+        {["0.5", "1.0", "2.0"].map(value => (
+          <button
+            key={value}
+            onClick={() => setSlippage((parseFloat(value) * 100).toString())}
+            className={`px-4 py-2 rounded-lg text-sm ${
+              slippage === (parseFloat(value) * 100).toString() 
+                ? "bg-[#77b5fe] text-black" 
+                : "bg-[#1a2232] text-white"
+            }`}
+          >
+            {value}%
+          </button>
+        ))}
+        
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={(parseInt(slippage) / 100).toFixed(1)}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value)
+              if (!isNaN(val) && val > 0 && val <= 50) {
+                setSlippage((val * 100).toString())
+              }
+            }}
+            className="w-full px-4 py-2 bg-[#1a2232] rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-[#77b5fe]"
+          />
+          <div className="absolute right-3 top-2 text-gray-400">%</div>
+        </div>
+      </div>
+      
+      <div className="text-xs text-gray-400">
+        Your transaction will revert if the price changes unfavorably by more than this percentage.
+      </div>
+    </div>
+  )
+
+  // Error message component with improved UX
+  const ErrorMessage = ({ error }: { error: string | null }) => {
+    if (!error) return null
+    
+    return (
+      <div className="bg-[#332332] border border-red-400/30 rounded-xl p-3 mb-4 text-red-300 text-sm">
+        <div className="flex items-start">
+          <span className="mr-2">⚠️</span>
+          <div>
+            <p>{error}</p>
+            {error.includes("liquidity") && (
+              <p className="mt-1 text-xs">Try reducing the swap amount or choosing different tokens.</p>
+            )}
+            {error.includes("temporarily") && (
+              <button 
+                onClick={fetchQuote}
+                className="mt-2 bg-red-400/20 hover:bg-red-400/30 text-red-300 px-3 py-1 rounded-md text-xs"
+              >
+                Try Again
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Execute the swap
+  const executeSwap = async () => {
+    if (!activeWallet || !quoteData || !fromToken || !toToken) {
+      setTxError("Wallet not connected or quote not available")
+      return
+    }
+
+    setIsSwapping(true)
+    setTxStatus('pending')
+    setTxError(null)
+    setTxHash(null)
+
+    try {
+      console.log("Quote data:", quoteData); // Debug log
+      
+      // Check for the transaction object and 'to' address location
+      if (!quoteData.transaction || !quoteData.transaction.to || !quoteData.transaction.to.startsWith('0x')) {
+        throw new Error("Invalid or missing 'to' address in quote data");
+      }
+      
+      // Create transaction object - using the correct path to transaction data
+      const tx = {
+        to: quoteData.transaction.to,
+        data: quoteData.transaction.data,
+        value: quoteData.transaction.value || "0", // Use the value from transaction object
+        gasLimit: quoteData.transaction.gas 
+          ? BigInt(Math.floor(Number(quoteData.transaction.gas) * 1.2)).toString()
+          : undefined
+      };
+      
+      console.log("Transaction object:", tx); // Debug log
+      
+      // Handle Permit2 if present in the quote (not needed for your current response)
+      if (quoteData.permit2 && quoteData.permit2.eip712) {
+        // Permit2 handling (your response shows permit2: null, so this won't execute)
+        const ethereumProvider = await activeWallet.getEthereumProvider();
+        const ethersProvider = new BrowserProvider(ethereumProvider);
+        const signer = await ethersProvider.getSigner();
+        
+        // Sign and append the permit as described in the docs
+        // ...code for Permit2 handling...
+      }
+      
+      // Get provider and signer
+      const ethereumProvider = await activeWallet.getEthereumProvider();
+      const ethersProvider = new BrowserProvider(ethereumProvider);
+      const signer = await ethersProvider.getSigner();
+
+      // Send the transaction with all necessary fields
+      console.log("Sending transaction:", tx);
+      const transaction = await signer.sendTransaction({
+        to: tx.to,
+        data: tx.data,
+        value: tx.value,
+        gasLimit: tx.gasLimit
+      });
+      
+      setTxHash(transaction.hash);
+      console.log("Transaction sent:", transaction.hash);
+
+      // Wait for transaction confirmation
+      console.log("Waiting for transaction confirmation...");
+      const receipt = await transaction.wait();
+      
+      if (receipt && receipt.status === 1) {
+        console.log("Swap transaction successful!");
+        setTxStatus('success');
+        
+        // Reset amount inputs after successful swap
+        setFromAmount("");
+        setToAmount("");
+        
+        // Trigger success animation
+        setShowQuoteSuccess(true);
+        setTimeout(() => setShowQuoteSuccess(false), 2000);
+      } else {
+        console.error("Transaction failed:", receipt);
+        setTxStatus('error');
+        setTxError("Transaction failed. Please check your wallet for details.");
+      }
+    } catch (error) {
+      console.error("Error executing swap:", error);
+      
+      // Provide user-friendly error message
+      let errorMessage = "Failed to execute swap. Please try again.";
+      
+      if (error instanceof Error) {
+        console.log("Error message:", error.message);
+        
+        // Parse common errors
+        if (error.message.includes("user rejected")) {
+          errorMessage = "Transaction was rejected in your wallet.";
+        } else if (error.message.includes("insufficient funds")) {
+          errorMessage = "Insufficient funds for this swap including gas fees.";
+        } else if (error.message.includes("gas required exceeds")) {
+          errorMessage = "Transaction would fail - likely due to slippage or gas issues.";
+        } else if (error.message.includes("Invalid")) {
+          errorMessage = error.message; // Use the exact error for clarity
+        }
+      }
+      
+      setTxStatus('error');
+      setTxError(errorMessage);
+    } finally {
+      setIsSwapping(false);
+    }
+  };
+
+  // Add transaction status component
+  const TransactionStatus = () => {
+    if (txStatus === 'idle') return null
+    
+    return (
+      <div className={`mt-4 p-3 rounded-xl ${
+        txStatus === 'pending' ? 'bg-blue-900/30 border border-blue-700/50' :
+        txStatus === 'success' ? 'bg-green-900/30 border border-green-700/50' : 
+        'bg-red-900/30 border border-red-700/50'
+      }`}>
+        <div className="flex items-center mb-1">
+          {txStatus === 'pending' && (
+            <Loader2 size={16} className="animate-spin text-blue-400 mr-2" />
+          )}
+          <span className={`text-sm font-medium ${
+            txStatus === 'pending' ? 'text-blue-400' :
+            txStatus === 'success' ? 'text-green-400' : 
+            'text-red-400'
+          }`}>
+            {txStatus === 'pending' ? 'Transaction in progress' :
+             txStatus === 'success' ? 'Swap successful!' : 
+             'Transaction failed'}
+          </span>
+        </div>
+        
+        {txHash && (
+          <div className="text-xs text-gray-400 break-all">
+            <span>Transaction: </span>
+            <a 
+              href={`https://explorer.monad.xyz/tx/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline"
+            >
+              {txHash.substring(0, 14)}...{txHash.substring(txHash.length - 14)}
+            </a>
+          </div>
+        )}
+        
+        {txError && <div className="text-xs text-red-400 mt-1">{txError}</div>}
+      </div>
+    )
+  }
+
   return (
     <div>
       {/* Main Content */}
@@ -324,7 +589,10 @@ export default function SwapComponent() {
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-white text-xl font-semibold">Swap</h2>
             <div className="flex space-x-2">
-              <button className="text-gray-400 hover:text-gray-300 transition-colors">
+              <button 
+                className="text-gray-400 hover:text-gray-300 transition-colors"
+                onClick={() => setShowSlippageSettings(!showSlippageSettings)}
+              >
                 <Settings size={20} />
               </button>
             </div>
@@ -482,10 +750,10 @@ export default function SwapComponent() {
                   <ChevronDown size={20} className="text-gray-400" />
                 </div>
               </div>
-              <div className="text-white text-3xl text-right w-1/2">
+              <div className={`text-white text-3xl text-right w-1/2 ${showQuoteSuccess ? 'animate-pulse text-green-400' : ''}`}>
                 {isLoadingQuote ? (
-                  <div className="flex justify-end items-center">
-                    <Loader2 className="animate-spin text-gray-400 mr-2" size={20} />
+                  <div className="flex justify-end items-center h-[36px]">
+                    <div className="bg-[#1a2232] rounded-md h-8 w-24 animate-pulse"></div>
                   </div>
                 ) : (
                   formatAmount(toAmount)
@@ -545,19 +813,32 @@ export default function SwapComponent() {
           </div>
 
           {/* Error Message */}
-          {quoteError && <div className="text-red-400 text-sm mb-4 text-center">{quoteError}</div>}
+          <ErrorMessage error={quoteError} />
+
+          {/* Add conditional rendering for slippage settings */}
+          {showSlippageSettings && <SlippageSelector />}
+          
+          {/* Transaction Status */}
+          <TransactionStatus />
 
           {/* Swap Button */}
           <button
-            className="w-full bg-gradient-to-r from-[#5edfff] to-[#77b5fe] text-black font-semibold py-4 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={isLoadingQuote || !fromToken || !toToken || !fromAmount || !toAmount}
-            onClick={() => {
-              // In a real app, this would execute the swap transaction
-              alert("Swap functionality would be implemented here with wallet connection")
-            }}
+            className="w-full bg-gradient-to-r from-[#5edfff] to-[#77b5fe] text-black font-semibold py-4 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+            disabled={isLoadingQuote || isSwapping || !fromToken || !toToken || !fromAmount || !toAmount || !activeWallet}
+            onClick={executeSwap}
           >
-            {isLoadingQuote ? "Loading Quote..." : "Swap"}
+            {isLoadingQuote ? "Loading Quote..." : 
+             isSwapping ? "Swapping..." :
+             !activeWallet ? "Connect Wallet to Swap" :
+             "Swap"}
           </button>
+          
+          {/* Add wallet connection prompt if needed */}
+          {!activeWallet && (
+            <div className="text-center text-xs text-gray-400 mt-2">
+              You need to connect a wallet to perform a swap
+            </div>
+          )}
         </div>
       </div>
     </div>
