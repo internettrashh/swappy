@@ -11,7 +11,7 @@ const userWalletAddress = '0x3FF1841743d1bFf0a93BAb21e6bae41e2326F810'; // Repla
 const sourceToken = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'; // Replace with actual token address
 const targetToken = '0x0F0BDEbF0F83cD1EE3974779Bcb7315f9808c714'; // Replace with actual token address
 const totalAmount = ethers.parseUnits('0.3', 18); // 0.3 MON in wei
-const totalDurationSeconds = 300; // 2 minutes in seconds
+const totalDurationSeconds = 300; // 5 minutes in seconds
 
 // Create a provider and wallet
 const provider = new ethers.JsonRpcProvider(providerUrl);
@@ -55,7 +55,7 @@ async function fundTrade(orderId) {
         const masterWalletAddress = '0x0015d013510C40a5779Beb25a6Cd0654A1f33aF8';
         
         // Use a fixed gas price
-        const gasPrice = ethers.parseUnits('100', 'gwei');
+        const gasPrice = ethers.parseUnits('150', 'gwei');
         
         // Create transaction to send funds to the master wallet (not to self)
         const tx = {

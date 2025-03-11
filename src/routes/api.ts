@@ -24,6 +24,20 @@ router.post('/dca/order', async (req, res) => {
       });
     }
 
+    // Different intervals for different durations
+    let intervalsCount;
+    if (totalDurationSeconds < 3600) {
+      // For less than 1 hour, trade every 5 minutes
+      intervalsCount = Math.max(2, Math.ceil(totalDurationSeconds / 300));
+    } else if (totalDurationSeconds < 86400) {
+      // For less than 1 day, trade every hour
+      intervalsCount = Math.ceil(totalDurationSeconds / 3600);
+    } else {
+      // For longer periods, trade every day
+      intervalsCount = Math.ceil(totalDurationSeconds / 86400);
+    }
+    const amountPerTrade = totalAmount / intervalsCount;
+
     const orderData = {
       userId,
       sourceToken,
@@ -31,7 +45,7 @@ router.post('/dca/order', async (req, res) => {
       totalAmount,
       totalDurationSeconds,
       userWalletAddress: req.body.userWalletAddress,
-      amountPerTrade: totalAmount / Math.ceil(totalDurationSeconds / 3600), // One trade per hour
+      amountPerTrade: amountPerTrade,
       remainingAmount: totalAmount,
       remainingSeconds: totalDurationSeconds
     };
