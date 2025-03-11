@@ -14,6 +14,7 @@ router.post('/dca/order', async (req, res) => {
       targetToken,
       totalAmount,
       totalDurationSeconds,
+      tradeIntervalSeconds, // New optional parameter
       userId  // You might get this from auth middleware
     } = req.body;
 
@@ -24,19 +25,22 @@ router.post('/dca/order', async (req, res) => {
       });
     }
 
-    // Different intervals for different durations
-    let intervalsCount;
-    if (totalDurationSeconds < 3600) {
-      // For less than 1 hour, trade every 5 minutes
-      intervalsCount = Math.max(2, Math.ceil(totalDurationSeconds / 300));
-    } else if (totalDurationSeconds < 86400) {
-      // For less than 1 day, trade every hour
-      intervalsCount = Math.ceil(totalDurationSeconds / 3600);
-    } else {
-      // For longer periods, trade every day
-      intervalsCount = Math.ceil(totalDurationSeconds / 86400);
+    // Set default trade interval if not provided
+    const intervalSeconds = tradeIntervalSeconds || 10; // Default to 10 seconds
+    
+    // Validate trade interval (max 7 days)
+    const MAX_INTERVAL_SECONDS = 7 * 24 * 60 * 60; // 7 days in seconds
+    if (intervalSeconds > MAX_INTERVAL_SECONDS) {
+      return res.status(400).json({
+        error: `Trade interval cannot exceed ${MAX_INTERVAL_SECONDS} seconds (7 days)`
+      });
     }
-    const amountPerTrade = totalAmount / intervalsCount;
+
+    // Calculate number of trades based on interval
+    const totalTrades = Math.ceil(totalDurationSeconds / intervalSeconds);
+    
+    // Calculate amount per trade
+    const amountPerTrade = totalAmount / totalTrades;
 
     const orderData = {
       userId,
@@ -44,10 +48,11 @@ router.post('/dca/order', async (req, res) => {
       targetToken,
       totalAmount,
       totalDurationSeconds,
-      userWalletAddress: req.body.userWalletAddress,
+      tradeIntervalSeconds: intervalSeconds, // Store the interval
       amountPerTrade: amountPerTrade,
       remainingAmount: totalAmount,
-      remainingSeconds: totalDurationSeconds
+      remainingSeconds: totalDurationSeconds,
+      userWalletAddress: req.body.userWalletAddress,
     };
 
     const order = await dcaService.createPendingOrder(orderData);

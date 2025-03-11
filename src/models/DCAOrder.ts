@@ -8,6 +8,7 @@ export interface IDCAOrder extends Document {
   totalAmount: number;
   amountPerTrade: number;
   totalDurationSeconds: number;  // Total duration in seconds
+  tradeIntervalSeconds: number; // Add this field
   startDate: Date;
   endDate: Date;
   status: 'pending' | 'active' | 'completed' | 'cancelled';
@@ -30,6 +31,7 @@ const DCAOrderSchema: Schema = new Schema({
   totalAmount: { type: Number, required: true },
   amountPerTrade: { type: Number, required: true },
   totalDurationSeconds: { type: Number, required: true },
+  tradeIntervalSeconds: { type: Number, required: true, default: 60 },
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date },
   status: { type: String, required: true, default: 'pending' },

@@ -57,19 +57,33 @@ export class DCAService {
   }
 
   // New method to be called by the queue processor
-  async processScheduledTrade(orderId: string, intervalSeconds: number) {
-    const result = await this.executeDCATrade(orderId);
+  async processScheduledTrade(orderId: string, intervalSeconds: number): Promise<boolean> {
     const order = await DCAOrder.findById(orderId);
-    
-    if (order?.status === 'active' && order.remainingAmount > 0) {
-      // Schedule the next job
-      await dcaQueue.add(
-        { orderId, intervalSeconds },
-        { delay: intervalSeconds * 1000 }
-      );
+    if (!order || order.status !== 'active' || order.remainingAmount <= 0) {
+      return false;
     }
-    
-    return result;
+
+    try {
+      // Execute the trade
+      const success = await this.executeDCATrade(orderId);
+      
+      if (success && order.remainingAmount > 0) {
+        // Schedule the next trade using the provided interval
+        await dcaQueue.add(
+          { orderId, intervalSeconds },
+          { delay: intervalSeconds * 1000 } // Convert to milliseconds
+        );
+        
+        // Update remaining seconds
+        const remainingSeconds = Math.max(0, order.remainingSeconds - intervalSeconds);
+        await DCAOrder.findByIdAndUpdate(orderId, { remainingSeconds });
+      }
+      
+      return success;
+    } catch (error) {
+      console.error(`Error processing scheduled trade for order ${orderId}:`, error);
+      return false;
+    }
   }
 
   async executeDCATrade(orderId: string): Promise<boolean> {
