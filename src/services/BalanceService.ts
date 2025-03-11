@@ -11,6 +11,9 @@ export class BalanceService {
     amount: string,
     txHash: string
   ): Promise<IUserBalance> {
+    // Convert string amount to number for MongoDB operations
+    const amountNumber = Number(amount);
+    
     const balance = await UserBalance.findOneAndUpdate(
       { userId, tokenAddress },
       {
@@ -19,7 +22,8 @@ export class BalanceService {
           tokenSymbol,
         },
         $inc: {
-          balance: amount
+          totalBalance: amountNumber,
+          availableBalance: amountNumber
         },
         $push: {
           transactions: {
@@ -45,80 +49,123 @@ export class BalanceService {
     amount: string,
     dcaOrderId: string
   ): Promise<boolean> {
-    const balance = await UserBalance.findOne({ userId, tokenAddress });
-    if (!balance) return false;
-
-    const availableBalance = BigInt(balance.availableBalance);
-    const amountBigInt = BigInt(amount);
-
-    if (availableBalance < amountBigInt) {
-      return false;
-    }
-
-    balance.lockedBalance = (BigInt(balance.lockedBalance) + amountBigInt).toString();
-    balance.availableBalance = (availableBalance - amountBigInt).toString();
-
-    await balance.save();
-    return true;
-  }
-
-  async recordSwap(
-    dcaOrder: IDCAOrder,
-    sourceAmount: string,
-    targetAmount: string,
-    txHash: string,
-    swapPrice: string
-  ): Promise<void> {
-    // Update source token balance
-    await UserBalance.findOneAndUpdate(
-      { userId: dcaOrder.userId, tokenAddress: dcaOrder.sourceToken },
+    // Convert string amount to number for MongoDB operations
+    const amountNumber = Number(amount);
+    
+    const result = await UserBalance.findOneAndUpdate(
+      { 
+        userId, 
+        tokenAddress,
+        availableBalance: { $gte: amountNumber } // Check if enough available balance
+      },
       {
         $inc: {
-          lockedBalance: `-${sourceAmount}`
+          availableBalance: -amountNumber,
+          lockedBalance: amountNumber
         },
         $push: {
           transactions: {
-            type: 'SWAP_OUT',
-            amount: sourceAmount,
-            txHash,
-            timestamp: new Date(),
-            dcaOrderId: dcaOrder._id,
-            swapPrice
+            type: 'LOCK',
+            amount,
+            dcaOrderId,
+            timestamp: new Date()
           }
         }
       }
     );
 
-    // Update target token balance
-    await UserBalance.findOneAndUpdate(
-      { 
-        userId: dcaOrder.userId, 
-        tokenAddress: dcaOrder.targetToken 
-      },
-      {
-        $setOnInsert: {
-          userWalletAddress: dcaOrder.userWalletAddress,
-          tokenSymbol: await this.getTokenSymbol(dcaOrder.targetToken),
-          totalBalance: '0',
-          availableBalance: '0'
-        },
-        $inc: {
-          swappedBalance: targetAmount,
-          totalBalance: targetAmount
-        },
-        $push: {
-          transactions: {
-            type: 'SWAP_IN',
-            amount: targetAmount,
-            txHash,
-            timestamp: new Date(),
-            dcaOrderId: dcaOrder._id,
-            swapPrice
+    return !!result; // Return true if update was successful
+  }
+
+  async recordSwap(
+    order: IDCAOrder,
+    sourceAmount: string,
+    targetAmount: string,
+    txHash: string,
+    swapPrice: string
+  ): Promise<void> {
+    try {
+      console.log('Recording swap with amounts:', {
+        sourceAmount,
+        targetAmount
+      });
+
+      // First, get the current balances
+      const sourceBalance = await UserBalance.findOne({ 
+        userId: order.userId, 
+        tokenAddress: order.sourceToken 
+      });
+      
+      const targetBalance = await UserBalance.findOne({ 
+        userId: order.userId, 
+        tokenAddress: order.targetToken 
+      }) || {
+        userId: order.userId,
+        tokenAddress: order.targetToken,
+        totalBalance: '0',
+        availableBalance: '0',
+        lockedBalance: '0',
+        swappedBalance: '0',
+        transactions: []
+      };
+      
+      // Calculate new balances using BigInt to handle large numbers
+      const currentLockedBalance = BigInt(sourceBalance?.lockedBalance || '0');
+      const sourceAmountBigInt = BigInt(sourceAmount);
+      const newLockedBalance = (currentLockedBalance - sourceAmountBigInt).toString();
+      
+      const currentSwappedBalance = BigInt(targetBalance.swappedBalance || '0');
+      const currentTotalBalance = BigInt(targetBalance.totalBalance || '0');
+      const targetAmountBigInt = BigInt(targetAmount);
+      const newSwappedBalance = (currentSwappedBalance + targetAmountBigInt).toString();
+      const newTotalBalance = (currentTotalBalance + targetAmountBigInt).toString();
+      
+      // Update source token balance with the new calculated value
+      await UserBalance.findOneAndUpdate(
+        { userId: order.userId, tokenAddress: order.sourceToken },
+        { 
+          $set: { lockedBalance: newLockedBalance },
+          $push: {
+            transactions: {
+              type: 'SWAP_OUT',
+              amount: sourceAmount,
+              txHash,
+              timestamp: new Date(),
+              dcaOrderId: order._id,
+              swapPrice
+            }
           }
-        }
-      },
-      { upsert: true }
-    );
+        },
+        { upsert: true }
+      );
+
+      // Update target token balance with the new calculated value
+      await UserBalance.findOneAndUpdate(
+        { userId: order.userId, tokenAddress: order.targetToken },
+        { 
+          $set: { 
+            swappedBalance: newSwappedBalance,
+            totalBalance: newTotalBalance
+          },
+          $push: {
+            transactions: {
+              type: 'SWAP_IN',
+              amount: targetAmount,
+              txHash,
+              timestamp: new Date(),
+              dcaOrderId: order._id,
+              swapPrice
+            }
+          }
+        },
+        { upsert: true }
+      );
+      
+      console.log('Swap recorded successfully');
+    } catch (error) {
+      console.error('Error recording swap:', error);
+      throw error;
+    }
   }
 
   async getUserPortfolio(userId: string): Promise<any> {

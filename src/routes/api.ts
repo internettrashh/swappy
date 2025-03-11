@@ -32,7 +32,8 @@ router.post('/dca/order', async (req, res) => {
       totalDurationSeconds,
       userWalletAddress: req.body.userWalletAddress,
       amountPerTrade: totalAmount / Math.ceil(totalDurationSeconds / 3600), // One trade per hour
-      remainingAmount: totalAmount
+      remainingAmount: totalAmount,
+      remainingSeconds: totalDurationSeconds
     };
 
     const order = await dcaService.createPendingOrder(orderData);
@@ -47,8 +48,12 @@ router.post('/dca/order', async (req, res) => {
 // Activate DCA order after deposit
 router.post('/dca/activate/:orderId', async (req, res) => {
   try {
+    const { orderId } = req.params;
     const { depositTxHash } = req.body;
-    const order = await dcaService.activateOrder(req.params.orderId, depositTxHash);
+    if (!orderId || !depositTxHash) {
+      return res.status(400).json({ error: 'Missing orderId or depositTxHash' });
+    }
+    const order = await dcaService.activateOrder(orderId, depositTxHash);
     res.json({ order });
   } catch (error) {
     res.status(500).json({ error: 'Failed to activate order' });

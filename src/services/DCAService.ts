@@ -2,6 +2,7 @@ import { SwapService } from './SwapService';
 import { DCAOrder, IDCAOrder } from '../models/DCAOrder';
 import { BalanceService } from './BalanceService';
 import { UserBalance } from '../models/UserBalance';
+import { dcaQueue } from './Queueservice';
 
 export class DCAService {
   private swapService: SwapService;
@@ -17,6 +18,7 @@ export class DCAService {
       ...orderData,
       status: 'pending',
       remainingAmount: orderData.totalAmount,
+      remainingSeconds: orderData.totalDurationSeconds,
       executedTrades: []
     });
     
@@ -43,9 +45,31 @@ export class DCAService {
   }
 
   private async scheduleDCAExecution(order: IDCAOrder) {
-    // Implementation of scheduling logic
-    // This would typically use a job queue or cron jobs
-    // For simplicity, we'll use a basic approach
+    // Calculate interval details
+    const totalTrades = Math.ceil(order.totalAmount / order.amountPerTrade);
+    const intervalSeconds = Math.floor(order.totalDurationSeconds / totalTrades);
+    
+    // Schedule the first job
+    await dcaQueue.add(
+      { orderId: order._id, intervalSeconds },
+      { delay: 10000 }
+    );
+  }
+
+  // New method to be called by the queue processor
+  async processScheduledTrade(orderId: string, intervalSeconds: number) {
+    const result = await this.executeDCATrade(orderId);
+    const order = await DCAOrder.findById(orderId);
+    
+    if (order?.status === 'active' && order.remainingAmount > 0) {
+      // Schedule the next job
+      await dcaQueue.add(
+        { orderId, intervalSeconds },
+        { delay: intervalSeconds * 1000 }
+      );
+    }
+    
+    return result;
   }
 
   async executeDCATrade(orderId: string): Promise<boolean> {

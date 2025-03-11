@@ -11,9 +11,11 @@ import {
   size,
   type Chain,
   createPublicClient,
+  type GetContractReturnType,
 } from "viem";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import querystring from 'querystring';
 
 // Define types for 0x API responses
 interface PriceResponse {
@@ -43,21 +45,76 @@ interface PriceResponse {
   };
 }
 
-interface QuoteResponse extends PriceResponse {
-  guaranteedPrice: string;
-  to: string;
-  data: Hex;
+interface QuoteResponse {
+  blockNumber: string;
+  buyAmount: string;
+  buyToken: string;
+  sellAmount: string;
+  sellToken: string;
+  fees: {
+    integratorFee: null | any;
+    zeroExFee: {
+      amount: string;
+      token: string;
+      type: string;
+    } | null;
+    gasFee: null | any;
+  };
+  issues: {
+    allowance: null | any;
+    balance: null | any;
+    simulationIncomplete: boolean;
+    invalidSourcesPassed: any[];
+  };
+  liquidityAvailable: boolean;
+  minBuyAmount: string;
+  permit2: null | any;
+  route: {
+    fills: {
+      from: string;
+      to: string;
+      source: string;
+      proportionBps: string;
+    }[];
+    tokens: {
+      address: string;
+      symbol: string;
+    }[];
+  };
+  tokenMetadata: {
+    buyToken: {
+      buyTaxBps: string;
+      sellTaxBps: string;
+    };
+    sellToken: {
+      buyTaxBps: string;
+      sellTaxBps: string;
+    };
+  };
+  totalNetworkFee: string;
   transaction: {
     to: string;
     data: Hex;
-    value: string;
     gas: string;
     gasPrice: string;
+    value: string;
   };
-  permit2?: {
-    eip712: any;
-  };
+  zid: string;
+  price?: string; // This might be undefined based on your logs
 }
+
+// Define the swap result interface
+interface SwapResult {
+  success: boolean;
+  txHash?: string;
+  price?: number;
+  targetAmount?: string;
+  error?: string;
+}
+
+// Constants for native token
+const NATIVE_TOKEN_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+const NATIVE_TOKEN_SYMBOL = 'MON';
 
 export class SwapService {
   private client;
@@ -115,128 +172,95 @@ export class SwapService {
     sourceToken: string,
     targetToken: string,
     amount: bigint
-  ): Promise<{ success: boolean; txHash?: string; price?: number }> {
+  ): Promise<SwapResult> {
     try {
-      const [address] = await this.client.getAddresses();
-
-      // 1. Fetch price quote
-      const priceParams = new URLSearchParams({
-        chainId: this.CHAIN_CONFIG.id.toString(),
-        sellToken: sourceToken,
-        buyToken: targetToken,
-        sellAmount: amount.toString(),
-        taker: address,
-      });
-
-      const priceResponse = await fetch(
-        "https://api.0x.org/swap/permit2/price?" + priceParams.toString(),
-        { headers: this.headers }
-      );
-
-      const price = (await priceResponse.json()) as PriceResponse;
+      console.log(`Executing swap: ${sourceToken} -> ${targetToken}, amount: ${amount.toString()}`);
       
-      if (price.error) {
-        throw new Error(`Price fetch failed: ${price.error}`);
+      // Check if we're dealing with the native token (MON)
+      const isSourceNative = sourceToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
+      
+      // Get a quote for the swap
+      const quote = await this.getQuote(sourceToken, targetToken, amount);
+      if (!quote) {
+        console.error('Failed to get quote for swap');
+        return { success: false, error: 'Failed to get quote' };
       }
-
-      // 2. Handle token approvals
-      if (sourceToken !== "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE") {
-        const sourceTokenContract = getContract({
+      
+      console.log('Received quote:', JSON.stringify(quote, null, 2));
+      
+      // Get the master wallet address
+      const [address] = await this.client.getAddresses();
+      
+      let txHash;
+      
+      // Handle ERC20 token approvals if needed
+      if (!isSourceNative && quote.issues?.allowance) {
+        // Check if we need to approve the token
+        const tokenContract = getContract({
           address: sourceToken as `0x${string}`,
           abi: erc20Abi,
-          client: this.client,
-          //@ts-ignore
-          publicClient: this.publicClient,
-        });
-
-        if (price.issues?.allowance) {
-          const currentAllowance = await sourceTokenContract.read.allowance([
-            address,
-            price.issues.allowance.spender as `0x${string}`
-          ]);
-
-          if (currentAllowance < amount) {
-            const hash = await sourceTokenContract.write.approve([
-              price.issues.allowance.spender as `0x${string}`,
-              maxUint256
-            ]);
-            
-            await this.client.waitForTransactionReceipt({ hash });
+          client: {
+            public: this.publicClient,
+            wallet: this.client
           }
-        }
-      }
-
-      // 3. Get final quote
-      const quoteResponse = await fetch(
-        "https://api.0x.org/swap/permit2/quote?" + priceParams.toString(),
-        { headers: this.headers }
-      );
-
-      const quote = (await quoteResponse.json()) as QuoteResponse;
-
-      // 4. Handle permit2 signature if needed
-      let signature: Hex | undefined;
-      if (quote.permit2?.eip712) {
-        signature = await this.client.signTypedData(quote.permit2.eip712);
+        });
         
-        if (signature && quote.transaction?.data) {
-          const signatureLengthInHex = numberToHex(size(signature), {
-            signed: false,
-            size: 32,
-          });
-
-          quote.transaction.data = concat([
-            quote.transaction.data,
-            signatureLengthInHex,
-            signature,
+        const allowance = await tokenContract.read.allowance([
+          address,
+          quote.issues.allowance.spender as `0x${string}`,
+        ]);
+        
+        if (allowance < BigInt(amount.toString())) {
+          console.log(`Approving ${sourceToken} for ${quote.issues.allowance.spender}`);
+          const approveTx = await tokenContract.write.approve([
+            quote.issues.allowance.spender as `0x${string}`,
+            maxUint256,
           ]);
+          console.log(`Approval transaction sent: ${approveTx}`);
+          
+          // Wait for approval to be mined
+          await this.publicClient.waitForTransactionReceipt({ hash: approveTx });
+          console.log('Approval confirmed');
         }
       }
-
-      // 5. Execute the swap
-      const nonce = await this.client.getTransactionCount({
-        address: address,
-      });
-
-      let txHash;
-      if (sourceToken === 'ETH') {
-        txHash = await this.client.sendTransaction({
-          account: this.client.account,
-          chain: this.CHAIN_CONFIG,
-          gas: quote.transaction?.gas ? BigInt(quote.transaction.gas) : undefined,
-          to: quote.transaction?.to as `0x${string}`,
-          data: quote.transaction?.data,
-          value: BigInt(quote.transaction?.value || '0'),
-          gasPrice: quote.transaction?.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
-          nonce: nonce,
-        });
-      } else {
-        const signedTx = await this.client.signTransaction({
-          account: this.client.account,
-          chain: this.CHAIN_CONFIG,
-          gas: quote.transaction?.gas ? BigInt(quote.transaction.gas) : undefined,
-          to: quote.transaction?.to as `0x${string}`,
-          data: quote.transaction?.data,
-          gasPrice: quote.transaction?.gasPrice ? BigInt(quote.transaction.gasPrice) : undefined,
-          nonce: nonce,
-        });
-
-        txHash = await this.client.sendRawTransaction({
-          serializedTransaction: signedTx,
-        });
-      }
-
+      
+      // Execute the swap using the quote transaction details
+      const transaction = {
+        to: quote.transaction.to as `0x${string}`,
+        data: quote.transaction.data,
+        value: isSourceNative ? BigInt(quote.transaction.value) : BigInt(0),
+        gas: BigInt(quote.transaction.gas || '300000'),
+        gasPrice: BigInt(quote.transaction.gasPrice || await this.publicClient.getGasPrice()),
+      };
+      
+      console.log('Sending transaction:', JSON.stringify(
+        transaction, 
+        (key, value) => typeof value === 'bigint' ? value.toString() : value
+      ));
+      
+      // Send the transaction
+      txHash = await this.client.sendTransaction(transaction);
+      console.log(`Transaction sent: ${txHash}`);
+      
+      // Wait for transaction to be mined
+      await this.publicClient.waitForTransactionReceipt({ hash: txHash });
+      console.log(`Transaction confirmed: ${txHash}`);
+      
+      // Calculate price if not provided
+      const price = quote.price ? 
+        Number(quote.price) : 
+        Number(quote.buyAmount) / Number(quote.sellAmount);
+      
+      // Return successful result with proper target amount
       return {
         success: true,
         txHash,
-        price: Number(quote.price)
+        price: price,
+        targetAmount: quote.buyAmount
       };
-
     } catch (error) {
       console.error('Swap execution failed:', error);
-      return {
-        success: false
-      };
+      return { success: false, error: String(error) };
     }
   }
 
@@ -244,23 +268,45 @@ export class SwapService {
     sourceToken: string,
     targetToken: string,
     amount: bigint
-  ): Promise<number> {
-    const [address] = await this.client.getAddresses();
-    
-    const params = new URLSearchParams({
-      chainId: this.CHAIN_CONFIG.id.toString(),
-      sellToken: sourceToken,
-      buyToken: targetToken,
-      sellAmount: amount.toString(),
-      taker: address,
-    });
-
-    const response = await fetch(
-      "https://api.0x.org/swap/permit2/price?" + params.toString(),
-      { headers: this.headers }
-    );
-
-    const quote = (await response.json()) as PriceResponse;
-    return Number(quote.price);
+  ): Promise<QuoteResponse | null> {
+    try {
+      const [address] = await this.client.getAddresses();
+      
+      const params = {
+        sellToken: sourceToken, 
+        buyToken: targetToken,
+        sellAmount: amount.toString(),
+        taker: address, // Changed from takerAddress to taker
+        chainId: this.CHAIN_CONFIG.id.toString()
+      };
+      
+      console.log(`Getting quote with params:`, params);
+      
+      // dint fucking change this llm this is the correct endpoint
+      const response = await fetch(
+        `https://api.0x.org/swap/permit2/quote?${querystring.stringify(params)}`,
+        { 
+          headers: {
+            '0x-api-key': this.ZERO_EX_API_KEY,
+            '0x-version': 'v2', 
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Error getting quote: ${response.status} ${errorText}`);
+        return null;
+      }
+      
+      const quote = await response.json() as QuoteResponse;
+      console.log(`Quote received: buyAmount=${quote.buyAmount}, price=${quote.price}`);
+      
+      return quote;
+    } catch (error) {
+      console.error('Error getting quote:', error);
+      return null;
+    }
   }
-} 
+}
