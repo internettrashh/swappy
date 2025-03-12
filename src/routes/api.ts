@@ -1,10 +1,13 @@
 import express from 'express';
 import { DCAService } from '../services/DCAService';
 import { BalanceService } from '../services/BalanceService';
+import { LimitOrderService } from '../services/LimitOrderService';
+import cron from 'node-cron';
 
 const router = express.Router();
 const dcaService = new DCAService();
 const balanceService = new BalanceService();
+const limitOrderService = new LimitOrderService();
 
 // Create new DCA order
 router.post('/dca/order', async (req, res) => {
@@ -139,23 +142,28 @@ router.get('/dca/performance/:orderId', async (req, res) => {
   }
 });
 
-// Get all orders by wallet address
-router.get('/dca/wallet/:walletAddress', async (req, res) => {
+// Get all orders (DCA and limit) by wallet address
+router.get('/wallet/:walletAddress/orders', async (req, res) => {
   try {
     const { walletAddress } = req.params;
     if (!walletAddress) {
       return res.status(400).json({ error: 'Wallet address is required' });
     }
     
-    const orders = await dcaService.getOrdersByWalletAddress(walletAddress);
+    // Get DCA orders
+    const dcaOrders = await dcaService.getOrdersByWalletAddress(walletAddress);
     
-    // Format the response to include detailed information
-    const formattedOrders = await Promise.all(orders.map(async (order) => {
+    // Get limit orders
+    const limitOrders = await limitOrderService.getOrdersByWalletAddress(walletAddress);
+    
+    // Format DCA orders
+    const formattedDcaOrders = await Promise.all(dcaOrders.map(async (order) => {
       const progress = await balanceService.getDCAOrdersStatus(order.userId);
       const orderDetails = progress.find(p => p.orderId.toString() === order._id.toString());
       
       return {
         orderId: order._id,
+        orderType: 'dca', // Add order type identifier
         status: order.status,
         sourceToken: order.sourceToken,
         targetToken: order.targetToken,
@@ -170,7 +178,27 @@ router.get('/dca/wallet/:walletAddress', async (req, res) => {
       };
     }));
     
-    res.json({ orders: formattedOrders });
+    // Format limit orders
+    const formattedLimitOrders = limitOrders.map(order => {
+      return {
+        orderId: order._id,
+        orderType: 'limit', // Add order type identifier
+        status: order.status,
+        sourceToken: order.sourceToken,
+        targetToken: order.targetToken,
+        amount: order.amount,
+        targetPrice: order.targetPrice,
+        direction: order.direction,
+        createdAt: order.createdAt,
+        expiryDate: order.expiryDate,
+        executedTrade: order.executedTrade
+      };
+    });
+    
+    // Combine both types of orders
+    const allOrders = [...formattedDcaOrders, ...formattedLimitOrders];
+    
+    res.json({ orders: allOrders });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch wallet orders' });
   }
@@ -231,6 +259,116 @@ router.post('/dca/withdraw/:orderId', async (req, res) => {
   } catch (error) {
     console.error('Error in withdraw endpoint:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Create a new limit order
+router.post('/limit/order', async (req, res) => {
+  try {
+    const {
+      sourceToken,
+      targetToken,
+      amount,
+      targetPrice,
+      direction,
+      userId,
+      userWalletAddress,
+      expiryDate
+    } = req.body;
+
+    // Validate required fields
+    if (!sourceToken || !targetToken || !amount || !targetPrice || !direction) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: sourceToken, targetToken, amount, targetPrice, direction' 
+      });
+    }
+
+    // Validate direction
+    if (direction !== 'above' && direction !== 'below') {
+      return res.status(400).json({
+        error: 'Direction must be "above" or "below"'
+      });
+    }
+
+    const orderData = {
+      userId,
+      userWalletAddress,
+      sourceToken,
+      targetToken,
+      amount: parseFloat(amount),
+      targetPrice: parseFloat(targetPrice),
+      direction,
+      expiryDate: expiryDate ? new Date(expiryDate) : undefined
+    };
+
+    const order = await limitOrderService.createPendingOrder(orderData);
+    res.json({ order });
+
+  } catch (error) {
+    console.error('Limit order creation failed:', error);
+    res.status(500).json({ error: 'Failed to create limit order' });
+  }
+});
+
+// Activate limit order after deposit
+router.post('/limit/activate/:orderId', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { depositTxHash } = req.body;
+    if (!orderId || !depositTxHash) {
+      return res.status(400).json({ error: 'Missing orderId or depositTxHash' });
+    }
+    const order = await limitOrderService.activateOrder(orderId, depositTxHash);
+    res.json({ order });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to activate order' });
+  }
+});
+
+// Cancel limit order
+router.post('/limit/cancel/:orderId', async (req, res) => {
+  try {
+    const success = await limitOrderService.cancelLimitOrder(req.params.orderId);
+    if (success) {
+      res.json({ message: 'Limit order cancelled successfully' });
+    } else {
+      res.status(400).json({ error: 'Failed to cancel limit order' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get all limit orders for a user
+router.get('/limit/orders/:userId', async (req, res) => {
+  try {
+    const orders = await limitOrderService.getUserLimitOrders(req.params.userId);
+    res.json({ orders });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch limit orders' });
+  }
+});
+
+// Get specific limit order
+router.get('/limit/order/:orderId', async (req, res) => {
+  try {
+    const order = await limitOrderService.getLimitOrder(req.params.orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    res.json({ order });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch order' });
+  }
+});
+
+// Run every minute
+cron.schedule('* * * * *', async () => {
+  console.log('Checking limit orders...');
+  try {
+    await limitOrderService.checkAndProcessLimitOrders();
+  } catch (error) {
+    console.error('Error checking limit orders:', error);
   }
 });
 

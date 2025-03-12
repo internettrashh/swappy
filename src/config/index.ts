@@ -39,5 +39,8 @@ export const config = {
   
   // Server settings
   PORT: process.env.PORT || 3000,
-  NODE_ENV: process.env.NODE_ENV || 'development'
+  NODE_ENV: process.env.NODE_ENV || 'development',
+  
+  OX_API_KEY: process.env.OX_API_KEY || '3a91c837-7567-4778-92f0-a5e14d7f2313', // Use env variable in production!
+  DEFAULT_TAKER_ADDRESS: process.env.DEFAULT_TAKER_ADDRESS || '0x0000000000000000000000000000000000000000'
 }; 
