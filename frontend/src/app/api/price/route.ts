@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
+import dotenv from "dotenv"
+
+dotenv.config()
 
 // Base URL for 0x API
 const BASE_URL = "https://api.0x.org";
-const API_KEY = "3a91c837-7567-4778-92f0-a5e14d7f2313";
+const API_KEY = process.env.ZERO_EX_API_KEY;
 
 // Helper to validate addresses - basic check for 0x prefix and length
 const isValidAddress = (address: string): boolean => {
