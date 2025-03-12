@@ -21,6 +21,7 @@ export interface IDCAOrder extends Document {
   remainingAmount: number;
   remainingSeconds: number;    // Remaining time in seconds
   depositTxHash: string;     // Track the initial deposit transaction
+  tokensRefunded?: boolean;  // Track if tokens have been refunded to user
 }
 
 const DCAOrderSchema: Schema = new Schema({
@@ -44,6 +45,7 @@ const DCAOrderSchema: Schema = new Schema({
   remainingAmount: { type: Number, required: true },
   remainingSeconds: { type: Number, required: true },
   depositTxHash: { type: String },
+  tokensRefunded: { type: Boolean, default: false },
 });
 
 export const DCAOrder = mongoose.model<IDCAOrder>('DCAOrder', DCAOrderSchema);

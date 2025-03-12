@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { config } from '../config';
+import { config } from '../config/index';
 
 export class WalletService {
   private provider: ethers.Provider;
@@ -53,13 +53,74 @@ export class WalletService {
     sourceToken: string,
     amount: number
   ): Promise<string> {
-    const tokenContract = new ethers.Contract(
-      sourceToken,
-      ['function transfer(address, uint256) returns (bool)'],
-      this.masterWallet
-    );
+    try {
+      // Convert the amount to a string or BigInt to avoid overflow
+      const amountString = amount.toString();
+      
+      // Check if we're dealing with the native token (MON)
+      if (sourceToken.toLowerCase() === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'.toLowerCase()) {
+        // Send native token
+        const tx = await this.masterWallet.sendTransaction({
+          to: userAddress,
+          value: amountString, // Use string representation
+          gasLimit: 100000
+        });
+        await tx.wait();
+        return tx.hash;
+      } else {
+        // Send ERC20 token
+        const tokenContract = new ethers.Contract(
+          sourceToken,
+          ['function transfer(address, uint256) returns (bool)'],
+          this.masterWallet
+        );
 
-    const tx = await tokenContract.transfer(userAddress, amount);
-    return tx.hash;
+        // Use string representation for the amount
+        const tx = await tokenContract.transfer(userAddress, amountString);
+        await tx.wait();
+        return tx.hash;
+      }
+    } catch (error) {
+      console.error(`Error refunding tokens to ${userAddress}:`, error);
+      throw error;
+    }
+  }
+
+  async transferTokensToUser(
+    userAddress: string,
+    tokenAddress: string,
+    amount: number
+  ): Promise<string> {
+    try {
+      // Convert the amount to a string to avoid overflow
+      const amountString = amount.toString();
+      
+      // Check if we're dealing with the native token (MON)
+      if (tokenAddress.toLowerCase() === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'.toLowerCase()) {
+        // Send native token
+        const tx = await this.masterWallet.sendTransaction({
+          to: userAddress,
+          value: amountString, // Use string representation
+          gasLimit: 100000
+        });
+        await tx.wait();
+        return tx.hash;
+      } else {
+        // Send ERC20 token
+        const tokenContract = new ethers.Contract(
+          tokenAddress,
+          ['function transfer(address, uint256) returns (bool)'],
+          this.masterWallet
+        );
+
+        // Use string representation for the amount
+        const tx = await tokenContract.transfer(userAddress, amountString);
+        await tx.wait();
+        return tx.hash;
+      }
+    } catch (error) {
+      console.error(`Error transferring tokens to user ${userAddress}:`, error);
+      throw error;
+    }
   }
 } 

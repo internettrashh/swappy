@@ -10,8 +10,9 @@ const privateKey = process.env.TESTWALLET_PRIVATE_KEY; // Replace with the provi
 const userWalletAddress = '0x3FF1841743d1bFf0a93BAb21e6bae41e2326F810'; // Replace with the actual wallet address
 const sourceToken = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'; // Replace with actual token address
 const targetToken = '0x0F0BDEbF0F83cD1EE3974779Bcb7315f9808c714'; // Replace with actual token address
-const totalAmount = ethers.parseUnits('0.3', 18); // 0.3 MON in wei
-const totalDurationSeconds = 300; // 5 minutes in seconds
+const totalAmount = ethers.parseUnits('0.1', 18); // 0.3 MON in wei
+const totalDurationSeconds = 150; // 5 minutes in seconds
+const userId = "user1"; // User ID for testing
 
 // Create a provider and wallet
 const provider = new ethers.JsonRpcProvider(providerUrl);
@@ -28,7 +29,7 @@ async function createDCAOrder() {
     const createOrderCommand = `curl -X POST http://localhost:3001/api/dca/order \
     -H "Content-Type: application/json" \
     -d '{
-      "userId": "user1",
+      "userId": "${userId}",
       "sourceToken": "${sourceToken}",
       "targetToken": "${targetToken}",
       "totalAmount": "${totalAmount}",
@@ -55,7 +56,7 @@ async function fundTrade(orderId) {
         const masterWalletAddress = '0x0015d013510C40a5779Beb25a6Cd0654A1f33aF8';
         
         // Use a fixed gas price
-        const gasPrice = ethers.parseUnits('150', 'gwei');
+        const gasPrice = ethers.parseUnits('180', 'gwei');
         
         // Create transaction to send funds to the master wallet (not to self)
         const tx = {
@@ -107,6 +108,38 @@ async function activateDCAOrder(orderId, depositTxHash) {
     });
 }
 
+// Function to check DCA progress
+async function checkDCAProgress(orderId) {
+    const progressCommand = `curl -X GET http://localhost:3001/api/dca/progress/${orderId}`;
+
+    return new Promise((resolve, reject) => {
+        exec(progressCommand, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error checking DCA progress: ${stderr}`);
+                return reject(error);
+            }
+            console.log(`DCA Progress: ${stdout}`);
+            resolve(JSON.parse(stdout));
+        });
+    });
+}
+
+// Function to check user portfolio
+async function checkUserPortfolio(userId) {
+    const portfolioCommand = `curl -X GET http://localhost:3001/api/dca/portfolio/${userId}`;
+
+    return new Promise((resolve, reject) => {
+        exec(portfolioCommand, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error checking user portfolio: ${stderr}`);
+                return reject(error);
+            }
+            console.log(`User Portfolio: ${stdout}`);
+            resolve(JSON.parse(stdout));
+        });
+    });
+}
+
 // Add this before your fundTrade function
 async function checkBalance() {
     try {
@@ -125,12 +158,45 @@ async function checkBalance() {
     }
 }
 
+// Function to get all orders by wallet address
+async function getOrdersByWalletAddress(walletAddress) {
+  const walletOrdersCommand = `curl -X GET http://localhost:3001/api/dca/wallet/${walletAddress}`;
+
+  return new Promise((resolve, reject) => {
+    exec(walletOrdersCommand, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Error getting wallet orders: ${stderr}`);
+        return reject(error);
+      }
+      console.log(`Wallet Orders: ${stdout}`);
+      resolve(JSON.parse(stdout));
+    });
+  });
+}
+
+// Function to check user portfolio by wallet address
+async function checkUserPortfolioByWalletAddress(walletAddress) {
+  const portfolioCommand = `curl -X GET http://localhost:3001/api/dca/portfolio/wallet/${walletAddress}`;
+
+  return new Promise((resolve, reject) => {
+    exec(portfolioCommand, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Error checking user portfolio by wallet: ${stderr}`);
+        return reject(error);
+      }
+      console.log(`User Portfolio by Wallet: ${stdout}`);
+      resolve(JSON.parse(stdout));
+    });
+  });
+}
+
 // Main function to run the test
 (async () => {
     try {
         // Step 1: Create DCA Order
         const orderResponse = await createDCAOrder();
         const orderId = orderResponse.order._id; // Extract order ID from response
+        console.log(`Created order with ID: ${orderId}`);
 
         // Step 2: Fund the trade
         await checkBalance();
@@ -138,6 +204,29 @@ async function checkBalance() {
 
         // Step 3: Activate the DCA Order
         await activateDCAOrder(orderId, depositTxHash);
+        
+        // Step 4: Check DCA Progress
+        console.log("Checking DCA progress... in 2 mins");
+        await new Promise(resolve => setTimeout(resolve, 120000));
+        const progress = await checkDCAProgress(orderId);
+        console.log("DCA Progress Details:", JSON.stringify(progress, null, 2));
+        
+        // Step 5: Check User Portfolio
+        console.log("Checking user portfolio... in 2 mins");
+        await new Promise(resolve => setTimeout(resolve, 120000));
+        const portfolio = await checkUserPortfolio(userId);
+        console.log("User Portfolio Details:", JSON.stringify(portfolio, null, 2));
+        
+        // Step 7: Get all orders by wallet address
+        console.log("Getting all orders for wallet address...");
+        const walletOrders = await getOrdersByWalletAddress(userWalletAddress);
+        console.log("Wallet Orders Details:", JSON.stringify(walletOrders, null, 2));
+        
+        // Step 8: Check User Portfolio by Wallet Address
+        console.log("Checking user portfolio by wallet address...");
+        const walletPortfolio = await checkUserPortfolioByWalletAddress(userWalletAddress);
+        console.log("Wallet Portfolio Details:", JSON.stringify(walletPortfolio, null, 2));
+        
     } catch (error) {
         console.error('Error in DCA process:', error);
     }

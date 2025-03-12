@@ -26,7 +26,7 @@ router.post('/dca/order', async (req, res) => {
     }
 
     // Set default trade interval if not provided
-    const intervalSeconds = tradeIntervalSeconds || 10; // Default to 10 seconds
+    const intervalSeconds = tradeIntervalSeconds || 60; // Default to 10 seconds
     
     // Validate trade interval (max 7 days)
     const MAX_INTERVAL_SECONDS = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -136,6 +136,101 @@ router.get('/dca/performance/:orderId', async (req, res) => {
     res.json(orderPerformance);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch DCA performance' });
+  }
+});
+
+// Get all orders by wallet address
+router.get('/dca/wallet/:walletAddress', async (req, res) => {
+  try {
+    const { walletAddress } = req.params;
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Wallet address is required' });
+    }
+    
+    const orders = await dcaService.getOrdersByWalletAddress(walletAddress);
+    
+    // Format the response to include detailed information
+    const formattedOrders = await Promise.all(orders.map(async (order) => {
+      const progress = await balanceService.getDCAOrdersStatus(order.userId);
+      const orderDetails = progress.find(p => p.orderId.toString() === order._id.toString());
+      
+      return {
+        orderId: order._id,
+        status: order.status,
+        sourceToken: order.sourceToken,
+        targetToken: order.targetToken,
+        totalAmount: order.totalAmount,
+        remainingAmount: order.remainingAmount,
+        startDate: order.startDate,
+        progress: orderDetails ? orderDetails.progress : {
+          completedSwaps: order.executedTrades.length,
+          totalSwaps: Math.ceil(order.totalAmount / order.amountPerTrade),
+          percentageComplete: ((order.totalAmount - order.remainingAmount) / order.totalAmount) * 100
+        }
+      };
+    }));
+    
+    res.json({ orders: formattedOrders });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch wallet orders' });
+  }
+});
+
+// Get user portfolio by wallet address
+router.get('/dca/portfolio/wallet/:walletAddress', async (req, res) => {
+  try {
+    const { walletAddress } = req.params;
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Wallet address is required' });
+    }
+    
+    const portfolio = await balanceService.getUserPortfolioByWalletAddress(walletAddress);
+    res.json(portfolio);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch portfolio' });
+  }
+});
+
+// Withdraw funds from a DCA order and cancel it
+router.post('/dca/withdraw/:orderId', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { walletAddress } = req.body;
+    
+    if (!orderId) {
+      return res.status(400).json({ error: 'Missing orderId' });
+    }
+    
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Missing walletAddress' });
+    }
+    
+    // Verify that the wallet address matches the order's wallet address
+    const order = await dcaService.getOrderById(orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    
+    if (order.userWalletAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: 'Wallet address does not match order owner' });
+    }
+    
+    // Process the withdrawal and cancel the order
+    const result = await dcaService.withdrawAndCancelOrder(orderId);
+    
+    if (result.success) {
+      res.json({ 
+        message: 'Order cancelled and funds withdrawn successfully',
+        transactionHash: result.txHash,
+        refundedAmount: result.refundedAmount
+      });
+    } else {
+      res.status(500).json({ error: result.error || 'Failed to withdraw funds' });
+    }
+  } catch (error) {
+    console.error('Error in withdraw endpoint:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

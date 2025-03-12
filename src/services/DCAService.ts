@@ -3,6 +3,7 @@ import { DCAOrder, IDCAOrder } from '../models/DCAOrder';
 import { BalanceService } from './BalanceService';
 import { UserBalance } from '../models/UserBalance';
 import { dcaQueue } from './Queueservice';
+import { WalletService } from './WalletService';
 
 export class DCAService {
   private swapService: SwapService;
@@ -90,55 +91,76 @@ export class DCAService {
     const order = await DCAOrder.findById(orderId);
     if (!order || order.status !== 'active') return false;
 
-    try {
-      // Calculate exact amounts
-      const sourceAmount = order.amountPerTrade.toString();
-      
-      // Execute the swap
-      const swapResult = await this.swapService.executeSwap(
-        order.sourceToken,
-        order.targetToken,
-        BigInt(sourceAmount)
-      );
+    // Retry configuration
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 5000; // 5 seconds between retries
+    let retryCount = 0;
+    
+    const executeSwapWithRetry = async (): Promise<boolean> => {
+      try {
+        // Calculate exact amounts
+        const sourceAmount = order.amountPerTrade.toString();
+        
+        // Execute the swap
+        const swapResult = await this.swapService.executeSwap(
+          order.sourceToken,
+          order.targetToken,
+          BigInt(sourceAmount)
+        );
 
-      if (!swapResult.success) {
-        throw new Error('Swap failed');
+        if (!swapResult.success) {
+          throw new Error('Swap failed');
+        }
+
+        // Calculate target amount (this would come from the swap result)
+        const targetAmount = (Number(sourceAmount) * (swapResult.price || 0)).toString();
+        
+        // Record the swap in user balances
+        await this.balanceService.recordSwap(
+          order,
+          sourceAmount,
+          targetAmount,
+          swapResult.txHash || 'unknown',
+          swapResult.price?.toString() || '0'
+        );
+
+        // Update order status
+        order.executedTrades.push({
+          amount: order.amountPerTrade,
+          price: swapResult.price || 0,
+          timestamp: new Date(),
+          txHash: swapResult.txHash || 'unknown'
+        });
+
+        order.remainingAmount -= order.amountPerTrade;
+
+        if (order.remainingAmount <= 0) {
+          order.status = 'completed';
+          // Handle any remaining dust amounts
+          await this.handleCompletedOrder(order);
+        }
+
+        await order.save();
+        return true;
+      } catch (error) {
+        // Check if we should retry
+        if (retryCount < MAX_RETRIES) {
+          retryCount++;
+          console.log(`Swap attempt ${retryCount} failed, retrying in ${RETRY_DELAY_MS/1000} seconds...`);
+          
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+          
+          // Retry the operation
+          return executeSwapWithRetry();
+        } else {
+          console.error(`DCA trade execution failed after ${MAX_RETRIES} attempts:`, error);
+          return false;
+        }
       }
-
-      // Calculate target amount (this would come from the swap result)
-      const targetAmount = (Number(sourceAmount) * (swapResult.price || 0)).toString();
-      
-      // Record the swap in user balances
-      await this.balanceService.recordSwap(
-        order,
-        sourceAmount,
-        targetAmount,
-        swapResult.txHash || 'unknown',
-        swapResult.price?.toString() || '0'
-      );
-
-      // Update order status
-      order.executedTrades.push({
-        amount: order.amountPerTrade,
-        price: swapResult.price || 0,
-        timestamp: new Date(),
-        txHash: swapResult.txHash || 'unknown'
-      });
-
-      order.remainingAmount -= order.amountPerTrade;
-
-      if (order.remainingAmount <= 0) {
-        order.status = 'completed';
-        // Handle any remaining dust amounts
-        this.handleCompletedOrder(order);
-      }
-
-      await order.save();
-      return true;
-    } catch (error) {
-      console.error('DCA trade execution failed:', error);
-      return false;
-    }
+    };
+    
+    return executeSwapWithRetry();
   }
 
   async cancelDCAOrder(orderId: string): Promise<boolean> {
@@ -172,11 +194,55 @@ export class DCAService {
   }
 
   private async handleCompletedOrder(order: IDCAOrder): Promise<void> {
-    // Handle any remaining dust amounts or final state updates
-    // For completed orders, we may want to unlock any remaining tokens
-    if (order.remainingAmount > 0) {
-      await this.refundUnswappedTokens(order);
+    try {
+      // 1. Refund any remaining unswapped source tokens if there are any
+      if (order.remainingAmount > 0) {
+        await this.refundUnswappedTokens(order);
+      }
+      
+      // 2. Calculate total swapped tokens (target tokens) received during the DCA process
+      const targetTokenBalance = await this.getTargetTokenBalance(order.userId, order.targetToken);
+      
+      if (targetTokenBalance > 0) {
+        // 3. Transfer the swapped tokens back to the user's wallet
+        const walletService = new WalletService();
+        const txHash = await walletService.transferTokensToUser(
+          order.userWalletAddress,
+          order.targetToken,
+          targetTokenBalance
+        );
+        
+        console.log(`Transferred ${targetTokenBalance} of target token ${order.targetToken} to user ${order.userWalletAddress}. Transaction: ${txHash}`);
+        
+        // 4. Update the user balance record to reflect the transfer
+        await this.balanceService.recordWithdrawal(
+          order.userId,
+          order.userWalletAddress,
+          order.targetToken,
+          targetTokenBalance.toString(),
+          txHash,
+          order._id
+        );
+      }
+      
+      // 5. Update order to indicate tokens have been refunded
+      order.tokensRefunded = true;
+      await order.save();
+      
+    } catch (error) {
+      console.error(`Error handling completed order ${order._id}:`, error);
+      // You might want to add retry logic or notification system here
     }
+  }
+
+  // Helper method to get the target token balance for a user
+  private async getTargetTokenBalance(userId: string, tokenAddress: string): Promise<number> {
+    const balance = await UserBalance.findOne({
+      userId,
+      tokenAddress
+    });
+    
+    return balance ? Number(balance.swappedBalance) : 0;
   }
 
   async getDCAProgress(orderId: string): Promise<any> {
@@ -201,5 +267,103 @@ export class DCAService {
       cancelledOrders: orders.filter(order => order.status === 'cancelled'),
       totalInvested: orders.reduce((sum, order) => sum + (order.totalAmount - order.remainingAmount), 0)
     };
+  }
+
+  async getOrdersByWalletAddress(walletAddress: string): Promise<IDCAOrder[]> {
+    return await DCAOrder.find({ 
+      userWalletAddress: walletAddress 
+    });
+  }
+
+  // Get order by ID regardless of status
+  async getOrderById(orderId: string): Promise<IDCAOrder | null> {
+    return await DCAOrder.findById(orderId);
+  }
+
+  // Withdraw funds and cancel order
+  async withdrawAndCancelOrder(orderId: string): Promise<{
+    success: boolean;
+    txHash?: string;
+    refundedAmount?: number;
+    error?: string;
+  }> {
+    try {
+      const order = await DCAOrder.findById(orderId);
+      
+      if (!order) {
+        return { success: false, error: 'Order not found' };
+      }
+      
+      // Check if order can be cancelled (not already completed or cancelled)
+      if (order.status === 'completed' || order.status === 'cancelled') {
+        return { 
+          success: false, 
+          error: `Order cannot be cancelled because it is already ${order.status}` 
+        };
+      }
+      
+      // Calculate the amount to refund
+      const refundAmount = order.remainingAmount;
+      
+      if (refundAmount <= 0) {
+        return { success: false, error: 'No funds available to withdraw' };
+      }
+      
+      // Refund the remaining tokens to the user
+      const walletService = new WalletService();
+      const txHash = await walletService.refundRemainingTokens(
+        order.userWalletAddress,
+        order.sourceToken,
+        refundAmount
+      );
+      
+      // Update the order status to cancelled
+      order.status = 'cancelled';
+      await order.save();
+      
+      // Update user balance to reflect the withdrawal
+      await this.balanceService.recordWithdrawal(
+        order.userId,
+        order.userWalletAddress,
+        order.sourceToken,
+        refundAmount.toString(),
+        txHash,
+        order._id
+      );
+      
+      // Also check if there are any swapped tokens to refund
+      const targetTokenBalance = await this.getTargetTokenBalance(order.userId, order.targetToken);
+      
+      if (targetTokenBalance > 0) {
+        // Transfer the swapped tokens back to the user's wallet
+        const targetTxHash = await walletService.transferTokensToUser(
+          order.userWalletAddress,
+          order.targetToken,
+          targetTokenBalance
+        );
+        
+        // Update the user balance record to reflect the transfer
+        await this.balanceService.recordWithdrawal(
+          order.userId,
+          order.userWalletAddress,
+          order.targetToken,
+          targetTokenBalance.toString(),
+          targetTxHash,
+          order._id
+        );
+      }
+      
+      return {
+        success: true,
+        txHash,
+        refundedAmount: refundAmount
+      };
+    } catch (error) {
+      console.error('Error withdrawing and cancelling order:', error);
+      return {
+        success: false,
+        error: (error as Error).message || 'Unknown error occurred'
+      };
+    }
   }
 } 

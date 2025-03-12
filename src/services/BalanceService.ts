@@ -1,6 +1,7 @@
 import { parseUnits, formatUnits } from 'ethers';
 import { UserBalance, IUserBalance } from '../models/UserBalance';
 import { DCAOrder, IDCAOrder } from '../models/DCAOrder';
+import { DCAService } from './DCAService';
 
 export class BalanceService {
   async recordDeposit(
@@ -189,6 +190,78 @@ export class BalanceService {
     };
   }
 
+  async getUserPortfolioByWalletAddress(walletAddress: string): Promise<any> {
+    // First, find all balances associated with this wallet address
+    const balances = await UserBalance.find({ userWalletAddress: walletAddress });
+    
+    // Get all unique userIds associated with this wallet address
+    const userIds = [...new Set(balances.map(balance => balance.userId))];
+    
+    // Get all orders for these userIds
+    const allOrders = [];
+    for (const userId of userIds) {
+      const orders = await this.getDCAOrdersStatus(userId);
+      allOrders.push(...orders);
+    }
+    
+    // If no orders found through userIds, try to find orders directly by wallet address
+    if (allOrders.length === 0) {
+      const dcaService = new DCAService();
+      const orders = await dcaService.getOrdersByWalletAddress(walletAddress);
+      
+      // Format the orders similar to getDCAOrdersStatus
+      for (const order of orders) {
+        const sourceBalance = await UserBalance.findOne({
+          userWalletAddress: walletAddress,
+          tokenAddress: order.sourceToken
+        });
+
+        const targetBalance = await UserBalance.findOne({
+          userWalletAddress: walletAddress,
+          tokenAddress: order.targetToken
+        });
+
+        allOrders.push({
+          orderId: order._id,
+          status: order.status,
+          sourceToken: {
+            symbol: sourceBalance?.tokenSymbol || 'Unknown',
+            originalAmount: order.totalAmount,
+            remainingToSwap: order.remainingAmount,
+            alreadySwapped: order.totalAmount - order.remainingAmount
+          },
+          targetToken: {
+            symbol: targetBalance?.tokenSymbol || 'Unknown',
+            receivedAmount: targetBalance?.swappedBalance || '0',
+            averageSwapPrice: '0' // You might need to calculate this
+          },
+          progress: {
+            completedSwaps: order.executedTrades.length,
+            totalSwaps: Math.ceil(order.totalAmount / order.amountPerTrade),
+            percentageComplete: ((order.totalAmount - order.remainingAmount) / order.totalAmount) * 100
+          }
+        });
+      }
+    }
+    
+    return {
+      balances: balances.map(balance => ({
+        token: balance.tokenSymbol,
+        tokenAddress: balance.tokenAddress,
+        totalBalance: balance.totalBalance,
+        availableBalance: balance.availableBalance,
+        lockedInDCA: balance.lockedBalance,
+        swappedFromDCA: balance.swappedBalance,
+        details: {
+          originalDeposits: balance.totalBalance,
+          pendingSwaps: balance.lockedBalance,
+          receivedFromSwaps: balance.swappedBalance
+        }
+      })),
+      dcaOrders: allOrders
+    };
+  }
+
   async getDCAOrdersStatus(userId: string): Promise<any[]> {
     const orders = await DCAOrder.find({ userId });
     
@@ -239,5 +312,52 @@ export class BalanceService {
     // Implement token symbol lookup using ethers
     // Cache results to minimize RPC calls
     return 'TOKEN'; // Placeholder
+  }
+
+  async recordWithdrawal(
+    userId: string,
+    userWalletAddress: string,
+    tokenAddress: string,
+    amount: string,
+    txHash: string,
+    dcaOrderId?: string
+  ): Promise<IUserBalance> {
+    try {
+      // Convert string amount to number for MongoDB operations
+      // Use parseFloat to handle large numbers correctly
+      const amountNumber = parseFloat(amount);
+      
+      // Ensure the amount is negative for withdrawal (decrement)
+      const negativeAmount = -Math.abs(amountNumber);
+      
+      const balance = await UserBalance.findOneAndUpdate(
+        { userId, tokenAddress },
+        {
+          $inc: {
+            swappedBalance: negativeAmount,
+            totalBalance: negativeAmount
+          },
+          $push: {
+            transactions: {
+              type: 'WITHDRAWAL',
+              amount,
+              txHash,
+              timestamp: new Date(),
+              dcaOrderId
+            }
+          }
+        },
+        { new: true }
+      );
+
+      if (!balance) {
+        throw new Error(`No balance record found for user ${userId} and token ${tokenAddress}`);
+      }
+
+      return balance;
+    } catch (error) {
+      console.error(`Error recording withdrawal for user ${userId}:`, error);
+      throw error;
+    }
   }
 } 
