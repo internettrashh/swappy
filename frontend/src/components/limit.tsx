@@ -12,7 +12,7 @@ function Limit() {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#1a1d23]">
+    <div>
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4">
         {/* Limit Order Card */}
@@ -20,24 +20,11 @@ function Limit() {
           {/* Trading Options */}
           <div className="flex items-center space-x-4 mb-6">
             <button
-              onClick={() => router.push("/swap")}
+              onClick={() => router.push("/")}
               className="flex items-center space-x-1 text-gray-400 hover:text-gray-200"
             >
               <ArrowRightLeft className="w-4 h-4" />
               <span>Swap</span>
-            </button>
-
-            <button className="text-green-500 font-medium flex items-center space-x-1">
-              <Timer className="w-4 h-4" />
-              <span>Limit</span>
-            </button>
-
-            <button
-              onClick={() => router.push("/stop-loss")}
-              className="flex items-center space-x-1 text-gray-400 hover:text-gray-200"
-            >
-              <TrendingDown className="w-4 h-4" />
-              <span>Stop Loss</span>
             </button>
 
             <button
@@ -46,6 +33,13 @@ function Limit() {
             >
               <Zap className="w-4 h-4" />
               <span>DCA</span>
+            </button>
+            <button
+              onClick={() => router.push("/limit")}
+              className="flex items-center space-x-1 text-gray-400 hover:text-gray-200"
+            >
+              <Timer className="w-4 h-4" />
+              <span>Limit</span>
             </button>
 
             <div className="flex-grow"></div>
@@ -141,7 +135,7 @@ function Limit() {
           </button>
         </div>
       </main>
-    </div>
+  </div>
   );
 }
 

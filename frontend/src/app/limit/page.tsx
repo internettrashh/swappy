@@ -2,10 +2,13 @@
 import React from 'react'
 import Limit from '@/components/limit'
 
-function index() {
+function page() {
   return (
+    <div className="flex justify-center items-center mt-40">
+
    <Limit />
+   </div>
   )
 }
 
-export default index
+export default page
