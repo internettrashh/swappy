@@ -1,9 +1,9 @@
 "use client"
-import {Settings, HelpCircle, ArrowRightLeft, Timer, TrendingDown, Zap } from 'lucide-react';
-import { useState } from "react";
 
-export default function Home() {
+import React, { useState } from 'react'
+import { Moon, Settings, HelpCircle, ArrowRightLeft, Timer, TrendingDown, Zap } from 'lucide-react';
 
+function Swapy() {
     const [priceAmount, setPriceAmount] = useState('0');
     const [sellAmount, setSellAmount] = useState('0');
     const [buyAmount, setBuyAmount] = useState('0');
@@ -128,5 +128,7 @@ export default function Home() {
       </main>
 
     </div>
-  );
+  )
 }
+
+export default Swapy
