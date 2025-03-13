@@ -21,30 +21,48 @@ export class LimitOrderService {
 
   // Activate a limit order after deposit is confirmed
   async activateOrder(orderId: string, depositTxHash: string): Promise<ILimitOrder | null> {
-    const order = await LimitOrder.findById(orderId);
-    
-    if (!order || order.status !== 'pending') {
-      throw new Error('Order not found or not in pending status');
-    }
-    
-    order.status = 'active';
-    order.depositTxHash = depositTxHash;
-    
-    // Lock the funds in UserBalance
-    await UserBalance.findOneAndUpdate(
-      { 
-        userId: order.userId,
-        tokenAddress: order.sourceToken
-      },
-      { 
-        $inc: { 
-          lockedBalance: order.amount.toString(),
-          availableBalance: (-order.amount).toString()
-        }
+    try {
+      const order = await LimitOrder.findById(orderId);
+      
+      if (!order || order.status !== 'pending') {
+        throw new Error('Order not found or not in pending status');
       }
-    );
-    
-    return await order.save();
+      
+      // Get token symbol (you might need to implement this)
+      const tokenSymbol = "TOKEN"; // Replace with actual token symbol lookup
+      
+      // Convert amount to string for UserBalance
+      const amountString = order.amount.toString();
+      
+      // Create or update the UserBalance record
+      await UserBalance.findOneAndUpdate(
+        { 
+          userId: order.userId,
+          tokenAddress: order.sourceToken
+        },
+        { 
+          $setOnInsert: {
+            userWalletAddress: order.userWalletAddress,
+            tokenSymbol: tokenSymbol, // Set a valid token symbol
+            totalBalance: amountString,
+            availableBalance: "0",
+            lockedBalance: amountString,
+            swappedBalance: "0"
+          }
+        },
+        { upsert: true, new: true }
+      );
+      
+      // Update order status
+      order.status = 'active';
+      order.depositTxHash = depositTxHash;
+      await order.save();
+      
+      return order;
+    } catch (error) {
+      console.error("Error activating order:", error);
+      throw error; // Re-throw to be caught by the API route
+    }
   }
 
   // Cancel a limit order

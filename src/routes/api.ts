@@ -70,14 +70,18 @@ router.post('/dca/order', async (req, res) => {
 // Activate DCA order after deposit
 router.post('/dca/activate/:orderId', async (req, res) => {
   try {
-    const { orderId } = req.params;
-    const { depositTxHash } = req.body;
+    const { orderId } = req.params; // Ensure orderId is defined
+    const { depositTxHash } = req.body; // Ensure depositTxHash is defined
+
     if (!orderId || !depositTxHash) {
+      console.error('Missing parameters:', { orderId, depositTxHash }); // Log missing parameters
       return res.status(400).json({ error: 'Missing orderId or depositTxHash' });
     }
+
     const order = await dcaService.activateOrder(orderId, depositTxHash);
     res.json({ order });
   } catch (error) {
+    console.error('Error activating order:', { error }); // Log the error with context
     res.status(500).json({ error: 'Failed to activate order' });
   }
 });
@@ -321,7 +325,9 @@ router.post('/limit/activate/:orderId', async (req, res) => {
     const order = await limitOrderService.activateOrder(orderId, depositTxHash);
     res.json({ order });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to activate order' });
+    console.error("Error activating order:", error);
+    //@ts-ignore
+    res.status(500).json({ error: `Failed to activate order: ${error.message}` });
   }
 });
 
