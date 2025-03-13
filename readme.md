@@ -1,10 +1,10 @@
 # Swappi - DCA Trading Service
 
-Swappi is an automated trading service built on Monad's accelerated EVM that enables users to execute Dollar Cost Averaging (DCA) strategies and limit orders for cryptocurrency trading. This service reduces the emotional impact of market volatility by automating trades at regular intervals over specified time periods.
+SwappyFi is an automated trading service built for  Monad's accelerated EVM that enables users to execute Dollar Cost Averaging (DCA) strategies and limit orders for cryptocurrency trading. This service reduces the emotional impact of market volatility by automating trades at regular intervals over specified time periods.
 
 ## Project Overview
 
-Swappi provides a reliable, efficient, and user-friendly platform for crypto traders to implement DCA strategies and execute limit orders with minimal manual intervention. By leveraging Monad's accelerated EVM, Swappi offers superior transaction throughput and reduced gas costs compared to traditional EVM-based solutions.
+SwappyFi is a reliable, efficient, and user-friendly platform that enables crypto traders to automate DCA strategies and execute limit orders with minimal manual effort. Built on Monad’s accelerated EVM, SwappyFi delivers higher transaction throughput and lower gas fees compared to traditional EVM-based solutions, ensuring a seamless and cost-effective trading experience.
 
 ## Core Functionality
 
@@ -12,7 +12,7 @@ Swappi provides a reliable, efficient, and user-friendly platform for crypto tra
 - **Limit Orders**: Executes trades when specific price conditions are met
 - **Balance Management**: Tracks user token balances and manages deposits/withdrawals
 - **Automated Token Swaps**: Integrates with 0x API for optimal token swap execution
-- **Price Monitoring**: Utilizes Pyth Network for reliable price feeds
+
 
 ## Architecture
 
@@ -24,32 +24,12 @@ The application follows a service-oriented architecture with the following key c
 2. **LimitOrderService**: Handles limit order processing and execution
 3. **SwapService**: Executes token swaps through 0x API integration
 4. **BalanceService**: Manages user token balances
-5. **PriceService**: Monitors token prices using Pyth Network
+5. **PriceService**: Monitors token exchange rates using 0x api
 6. **WalletService**: Handles wallet interactions and transactions
 7. **QueueService**: Manages scheduled trades using Bull queue
 
-### API Layer
 
-RESTful API endpoints exposed through Express.js for:
-- Creating and managing DCA orders
-- Setting up limit orders
-- Monitoring portfolio and trade execution
-- Checking token balances and prices
 
-### Database
-
-MongoDB is used for persistent storage of:
-- User data
-- Order information
-- Balance records
-- Trade history
-
-### Job Scheduling
-
-Bull queue implementation for reliable scheduling of:
-- DCA trade executions
-- Price monitoring
-- Limit order checking
 
 ## Technologies Used
 
@@ -57,14 +37,16 @@ Bull queue implementation for reliable scheduling of:
 - **Database**: MongoDB with Mongoose ODM
 - **Blockchain Interaction**: Viem, ethers.js
 - **Price Feeds**: Pyth Network
+- **Wallet Infrastructure**: Privy for seamless wallet creation and management
+- **DEX Integration**: 0X API for reliable and efficient token swaps
 - **Job Queue**: Bull with Redis
 - **Scheduling**: node-cron
-- **API Integration**: 0x API for token swaps
 - **Containerization**: Docker
 
-## Monad Integration
 
-Swappi leverages Monad's accelerated EVM to provide significant advantages:
+
+
+SwappyFi leverages Monad's accelerated EVM to provide significant advantages:
 
 1. **High Throughput**: Monad's parallel execution engine enables faster transaction processing, allowing Swappi to handle a higher volume of trades simultaneously.
 
