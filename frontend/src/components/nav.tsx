@@ -3,6 +3,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useWallets } from '@privy-io/react-auth';
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
+import OrderHistoryNavIcon from './OrderHistoryNavIcon';
 
 function Nav() {
   const { login, authenticated, user, logout } = usePrivy();
@@ -47,8 +48,9 @@ function Nav() {
      
       {/* Right Side */}
       <div className="flex items-center space-x-4">
-        <Bell size={20} className="text-gray-400 hover:text-white" />
-        <Moon size={20} className="text-gray-400 hover:text-white" />
+        
+        
+        {activeWallet && <OrderHistoryNavIcon walletAddress={activeWallet.address} />}
         
         {authenticated ? (
           <div 
