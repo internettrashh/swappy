@@ -43,13 +43,8 @@ function Nav() {
         <span className="text-green-500">fi</span>
       </div>
       
-      {/* Navigation Links */}
-      <nav className="hidden sm:flex space-x-8">
-        <a href="#" className="text-white">Swap</a>
-        <a href="#" className="text-gray-400 hover:text-gray-200">DCA</a>
-        <a href="#" className="text-gray-400 hover:text-gray-200">Limit</a>
-      </nav>
       
+     
       {/* Right Side */}
       <div className="flex items-center space-x-4">
         <Bell size={20} className="text-gray-400 hover:text-white" />

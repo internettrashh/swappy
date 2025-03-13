@@ -3,7 +3,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { PrivyProvider } from '@privy-io/react-auth';
-import Nav from '@/components/nav'
+import Nav from '@/components/nav';
+import { Toaster } from 'react-hot-toast';
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -92,6 +94,7 @@ export default function RootLayout({
         >
             <div className="min-h-screen bg-[#1c2127] text-gray-200">            
             <Nav />
+            <Toaster position="bottom-right" />
             <main className="container mx-auto px-4 relative">
               {children}
             </main>

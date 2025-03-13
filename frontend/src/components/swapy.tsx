@@ -177,7 +177,7 @@ function Swapy() {
         setIsLoadingToBalance(true)
       }
 
-      const provider = new ethers.JsonRpcProvider("https://rpc.monad.xyz")
+      const provider = new ethers.JsonRpcProvider("https://testnet-rpc.monad.xyz")
 
       // If it's a native token (MON)
       if (token.isNative) {
@@ -645,9 +645,9 @@ function Swapy() {
   }
 
   return (
-    <div>
+    <div className="min-h-screen flex items-center justify-center">
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto mt-12 px-4">
+      <main className="w-full max-w-4xl px-4 mb-12">
         {/* Swap Card */}
         <div className="bg-[#2a2f35] rounded-lg p-6">
           {/* Swap Options */}

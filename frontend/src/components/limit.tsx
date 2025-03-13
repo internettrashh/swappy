@@ -36,7 +36,7 @@ function Limit() {
             </button>
             <button
               onClick={() => router.push("/limit")}
-              className="flex items-center space-x-1 text-gray-400 hover:text-gray-200"
+              className="flex items-center space-x-1 text-green-500 font-medium"
             >
               <Timer className="w-4 h-4" />
               <span>Limit</span>

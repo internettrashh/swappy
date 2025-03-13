@@ -329,7 +329,7 @@ export default function SwapComponent() {
     // If MON is selected, fetch actual balance
     if (fromToken?.symbol === "MON") {
       try {
-        const provider = new ethers.JsonRpcProvider("https://rpc.monad.xyz")
+        const provider = new ethers.JsonRpcProvider("https://testnet-rpc.monad.xyz")
         const balanceWei = await provider.getBalance(activeWallet.address)
         
         // Leave a small amount for gas (0.01 MON)
