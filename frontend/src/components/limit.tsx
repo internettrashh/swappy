@@ -7,7 +7,7 @@ import {
   ArrowRightLeft,
   Timer,
   Zap,
-  HelpCircle,
+  
   Settings,
   ChevronDown,
   Loader2,
@@ -855,7 +855,7 @@ function Limit() {
               {buyAmount && sellAmount && targetPrice && (
                 <div className="text-xs text-blue-400 mt-2">
                   <Info size={12} className="inline mr-1" />
-                  This is what you'll receive if the order executes at your target price.
+                  This is what you&apos;ll receive if the order executes at your target price.
                 </div>
               )}
             </div>
