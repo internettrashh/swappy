@@ -9,6 +9,18 @@ const dcaService = new DCAService();
 const balanceService = new BalanceService();
 const limitOrderService = new LimitOrderService();
 
+
+
+
+
+// Health check route
+router.get('/', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    message: 'SwappyFi API is running',
+    timestamp: new Date().toISOString()
+  });
+});
 // Create new DCA order
 router.post('/dca/order', async (req, res) => {
   try {
