@@ -138,7 +138,7 @@ function OrderHistoryModal({ isOpen, onClose, walletAddress }: OrderHistoryModal
         setError(null);
         
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/wallet/${walletAddress}/orders`);
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/wallet/${walletAddress}/orders`);
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch orders: ${response.status}`);

@@ -309,7 +309,7 @@ function Dca() {
       const userWalletAddress = activeWallet.address;
       
       // Step 1: Create DCA order in the API
-      const createOrderResponse = await fetch(`${apiBaseUrl}/api/dca/order`, {
+      const createOrderResponse = await fetch(`${apiBaseUrl}/dca/order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -405,7 +405,7 @@ function Dca() {
         throw new Error('Cannot activate order: missing order ID');
       }
 
-      const activateResponse = await fetch(`${apiBaseUrl}/api/dca/activate/${orderIdToUse}`, {
+      const activateResponse = await fetch(`${apiBaseUrl}/dca/activate/${orderIdToUse}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

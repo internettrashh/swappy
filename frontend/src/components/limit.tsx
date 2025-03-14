@@ -374,7 +374,7 @@ function Limit() {
       const userWalletAddress = activeWallet.address
 
       // Step 1: Create Limit order in the API
-      const createOrderResponse = await fetch(`${apiBaseUrl}/api/limit/order`, {
+      const createOrderResponse = await fetch(`${apiBaseUrl}/limit/order`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -472,7 +472,7 @@ function Limit() {
       }
       await new Promise(r => setTimeout(r, 2000));
 
-      const activateResponse = await fetch(`${apiBaseUrl}/api/limit/activate/${orderIdToUse}`, {
+      const activateResponse = await fetch(`${apiBaseUrl}/limit/activate/${orderIdToUse}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
